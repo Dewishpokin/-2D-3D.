@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<title>Integrated Risk Analysis System</title>
+
+<style>
+body{font-family:Arial;margin:40px}
+input{margin:5px;width:90px}
+button{margin:5px;padding:6px 12px}
+.point-row{margin-bottom:5px}
+.result{margin-top:20px;font-weight:bold;font-size:18px}
+.low{color:green}
+.medium{color:orange}
+.high{color:red}
+.critical{color:darkred}
+.error{color:gray;font-size:20px}
+.section{border:1px solid #ccc;padding:20px;margin-bottom:40px}
+</style>
+</head>
+<body>
+
+<h1>ระบบวิเคราะห์ดัชนีความเสี่ยงแบบ 2D และ 3D</h1>
+
+<!-- ================= 2D SECTION ================= -->
+
+<div class="section">
+
+<h2>1) ดัชนีความเสี่ยงจากฟังก์ชันกำลังสอง</h2>
+
+<div id="points"></div>
+
+<button onclick="addPoint()">➕ เพิ่มจุด</button>
+<button onclick="removePoint()">➖ ลบจุดล่าสุด</button>
+
+<h3>ความสูงจุดยอด (เมตร)</h3>
+<input id="vertexHeight" type="number">
+
+<br>
+<button onclick="calculate2D()">คำนวณความเสี่ยง</button>
+
+<div id="output2D" class="result"></div>
+
+</div>
+
+<!-- ================= 3D SECTION ================= -->
+
+<div class="section">
+
+<h2>2) ดัชนีความเสี่ยงเชิงปริมาตรสี่เหลี่ยม</h2>
+
+ความยาว (l):
+<input id="length3D" type="number"><br>
+
+ความกว้าง (w):
+<input id="width3D" type="number"><br>
+
+ความสูงจริง (h):
+<input id="height3D" type="number"><br>
+
+ความสูงมาตรฐาน:
+<input id="standardHeight3D" type="number"><br>
+
+<button onclick="calculate3D()">คำนวณความเสี่ยง</button>
+
+<div id="output3D" class="result"></div>
+
+</div>
+
+<script>
+
+/* =================== POINT CONTROL =================== */
+
+let pointCount=0
+
+function addPoint(){
+pointCount++
+let div=document.createElement("div")
+div.className="point-row"
+div.id="row"+pointCount
+div.innerHTML=
+"x: <input type='number' id='x"+pointCount+"'>"+
+" y: <input type='number' id='y"+pointCount+"'>"
+document.getElementById("points").appendChild(div)
+}
+
+function removePoint(){
+if(pointCount<=3){
+alert("ต้องมีอย่างน้อย 3 จุด")
+return
+}
+document.getElementById("row"+pointCount).remove()
+pointCount--
+}
+
+addPoint(); addPoint(); addPoint();
+
+/* =================== 2D RISK =================== */
+
+function calculate2D(){
+
+try{
+
+if(pointCount<3) throw "need 3"
+
+let X=[],Y=[]
+
+for(let i=1;i<=pointCount;i++){
+let xv=parseFloat(document.getElementById("x"+i).value)
+let yv=parseFloat(document.getElementById("y"+i).value)
+if(isNaN(xv)||isNaN(yv)) throw "input"
+X.push(xv); Y.push(yv)
+}
+
+let n=X.length
+let sumX=0,sumX2=0,sumX3=0,sumX4=0
+let sumY=0,sumXY=0,sumX2Y=0
+
+for(let i=0;i<n;i++){
+let x=X[i],y=Y[i]
+sumX+=x
+sumX2+=x*x
+sumX3+=x*x*x
+sumX4+=x*x*x*x
+sumY+=y
+sumXY+=x*y
+sumX2Y+=x*x*y
+}
+
+let A=[
+[n,sumX,sumX2],
+[sumX,sumX2,sumX3],
+[sumX2,sumX3,sumX4]
+]
+let B=[sumY,sumXY,sumX2Y]
+
+function det3(m){
+return m[0][0]*(m[1][1]*m[2][2]-m[1][2]*m[2][1])
+- m[0][1]*(m[1][0]*m[2][2]-m[1][2]*m[2][0])
++ m[0][2]*(m[1][0]*m[2][1]-m[1][1]*m[2][0])
+}
+
+let D=det3(A)
+if(D==0) throw "no solve"
+
+function replaceCol(matrix,col,vec){
+let m=JSON.parse(JSON.stringify(matrix))
+for(let i=0;i<3;i++) m[i][col]=vec[i]
+return m
+}
+
+let c=det3(replaceCol(A,0,B))/D
+let b=det3(replaceCol(A,1,B))/D
+let a=det3(replaceCol(A,2,B))/D
+
+let delta=b*b-4*a*c
+if(delta<=0) throw "no root"
+
+let r1=(-b-Math.sqrt(delta))/(2*a)
+let r2=(-b+Math.sqrt(delta))/(2*a)
+if(r1>r2){let t=r1;r1=r2;r2=t}
+
+function F(x){
+return (a/3)*x**3+(b/2)*x**2+c*x
+}
+
+let integral_fx=Math.abs(F(r2)-F(r1))
+if(integral_fx==0) throw "no int"
+
+let vertexInput=parseFloat(vertexHeight.value)
+if(isNaN(vertexInput)) throw "vertex"
+
+let threshold=(vertexInput<23)?8:23
+
+function Fcase(x){
+return (a/3)*x**3+(b/2)*x**2+(c-threshold)*x
+}
+
+let percent=Math.abs(Fcase(r2)-Fcase(r1))/integral_fx*100
+if(!isFinite(percent)) throw "no result"
+
+let lv=getLevel(percent)
+
+document.getElementById("output2D").innerHTML=
+"f(x) = "+a.toFixed(4)+"x² + "+b.toFixed(4)+"x + "+c.toFixed(4)
++"<br><br>ความเสี่ยง = "
++percent.toFixed(2)+"% "
++"<span class='"+lv[1]+"'>("+lv[0]+")</span>"
+
+}catch(e){
+document.getElementById("output2D").innerHTML=
+"<span class='error'>ไม่สามารถหาค่าได้</span>"
+}
+
+}
+
+/* =================== 3D RISK =================== */
+
+function calculate3D(){
+
+try{
+
+let l=parseFloat(length3D.value)
+let w=parseFloat(width3D.value)
+let h=parseFloat(height3D.value)
+let hs=parseFloat(standardHeight3D.value)
+
+if(isNaN(l)||isNaN(w)||isNaN(h)||isNaN(hs)
+||l<=0||w<=0||h<=0||hs<=0) throw "input"
+
+let total=l*w*h
+let excess=(h>hs)?l*w*(h-hs):0
+
+let percent=excess/total*100
+
+let lv=getLevel(percent)
+
+document.getElementById("output3D").innerHTML=
+"ปริมาตรรวม = "+total.toFixed(2)+"<br>"+
+"ปริมาตรเกิน = "+excess.toFixed(2)+"<br><br>"+
+"ความเสี่ยง = "+percent.toFixed(2)+"% "+
+"<span class='"+lv[1]+"'>("+lv[0]+")</span>"
+
+}catch(e){
+document.getElementById("output3D").innerHTML=
+"<span class='error'>ไม่สามารถหาค่าได้</span>"
+}
+
+}
+
+/* =================== RISK LEVEL =================== */
+
+function getLevel(p){
+if(p<=20)return["ต่ำ","low"]
+if(p<=40)return["ปานกลาง","medium"]
+if(p<=60)return["สูง","high"]
+if(p<=80)return["อันตราย","high"]
+return["วิกฤต","critical"]
+}
+
+</script>
+
+</body>
+</html>
